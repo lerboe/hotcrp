@@ -25,7 +25,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-USER_AGENT = "hotcrp-ci-action/1"
+USER_AGENT = "hotcrp-action/1"
 CHUNK_SIZE = 5 * 1024 * 1024
 
 # HotCRP document types: 0 = submission PDF, -1 = final (camera-ready) PDF.
@@ -591,7 +591,7 @@ def main(argv: list[str] | None = None) -> int:
     try:
         return run(parse_args(argv))
     except UploadError as e:
-        gh_annotate("error", str(e), "hotcrp-ci")
+        gh_annotate("error", str(e), "hotcrp")
         return 1
 
 

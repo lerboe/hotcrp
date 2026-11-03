@@ -1,4 +1,4 @@
-# hotcrp-ci
+# hotcrp
 
 GitHub Action that uploads a rendered PDF plus metadata from `hotcrp.toml` to a
 [HotCRP](https://hotcrp.com) site, then runs HotCRP's format checker.
@@ -9,7 +9,7 @@ stdlib only.
 ## Usage
 
 ```yaml
-- uses: lerboe/hotcrp-ci@main
+- uses: lerboe/hotcrp@main
   with:
     token: ${{ secrets.HOTCRP_TOKEN }}
     pdf: build/paper.pdf

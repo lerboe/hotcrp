@@ -24,7 +24,7 @@ jobs:
 
       - name: Upload to HotCRP
         id: hotcrp
-        uses: lerboe/hotcrp-ci@main
+        uses: lerboe/hotcrp@main
         with:
           token: ${{ secrets.HOTCRP_TOKEN }}
           pdf: paper.pdf
