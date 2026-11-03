@@ -1,12 +1,14 @@
 # hotcrp
 
-GitHub Action that uploads a rendered PDF plus metadata from `hotcrp.toml` to a
+GitHub Action and GitLab CI template that upload a rendered PDF plus metadata from `hotcrp.toml` to a
 [HotCRP](https://hotcrp.com) site, then runs HotCRP's format checker.
 
 Uses the HotCRP REST API ([reference](https://hotcrp.com/devel/api/)). Python
 stdlib only.
 
 ## Usage
+
+### GitHub Actions
 
 ```yaml
 - uses: lerboe/hotcrp@main
@@ -18,10 +20,47 @@ stdlib only.
 
 Full example: [`examples/hotcrp-submit.yml`](examples/hotcrp-submit.yml).
 
+### GitLab CI
+
+```yaml
+include:
+  - remote: https://raw.githubusercontent.com/lerboe/hotcrp/main/templates/upload.yml
+    inputs:
+      pdf: build/paper.pdf
+      max-pages: "12"
+
+hotcrp-upload:      # optional: override any job key
+  needs: [build]
+```
+
+Set `HOTCRP_TOKEN` as a masked CI/CD variable. The job runs on
+`python:3.12-alpine`, downloads `src/hotcrp_upload.py` at ref `version`
+(default `main`), and runs it. Docker/Kubernetes executors work as is. Shell
+executors ignore `image` and need `python3` ≥ 3.11 on the `PATH`.
+
+Extra template inputs: `job-name` (default `hotcrp-upload`), `stage`
+(default `deploy`), `rules`, `image`, `version`. All other inputs match the
+GitHub action. Values are strings: quote numbers and booleans.
+
+Outputs go to a dotenv report, so later jobs get `HOTCRP_RESULT_PAPER_ID`,
+`HOTCRP_RESULT_PAPER_URL`, `HOTCRP_RESULT_NPAGES`, … The job summary is saved
+as artifact `hotcrp-summary.md`.
+
+Full example: [`examples/gitlab-ci.yml`](examples/gitlab-ci.yml).
+
+### Anywhere else
+
+```bash
+HOTCRP_TOKEN=hct_... python3 src/hotcrp_upload.py --pdf paper.pdf --dry-run true
+```
+
+Every input is a `--flag` or a `HOTCRP_<INPUT>` environment variable
+(e.g. `HOTCRP_PAPER_ID`).
+
 ### Token
 
-Create in HotCRP: *Account settings → Developer*. Store as repo secret
-`HOTCRP_TOKEN`. Scopes needed:
+Create in HotCRP: *Account settings → Developer*. Store as secret /
+masked CI variable `HOTCRP_TOKEN`. Scopes needed:
 
 | Scope | For |
 |---|---|
@@ -88,6 +127,8 @@ Unknown keys fail fast, so typos don't silently drop fields.
 
 ## Outputs
 
+GitLab: same names, upper-cased with `HOTCRP_RESULT_` prefix.
+
 `paper-id`, `paper-url`, `paper-status`, `valid`, `change-list` (JSON),
 `npages`, `nwords`, `format-ok`, `format-problems` (JSON).
 
@@ -100,7 +141,7 @@ Unknown keys fail fast, so typos don't silently drop fields.
 5. `POST /api/paper?p=…&dry_run=1` — validate. Errors/warnings become annotations.
 6. `POST /api/paper?p=…` — save. Checks `ok` **and** `valid`.
 7. `GET /api/formatcheck?p=…&dt=0|-1&detail=1` — page count, problem fields.
-8. Write outputs and a job summary.
+8. Write outputs and a job summary (annotations on GitHub, colored log lines on GitLab).
 
 After the first upload with `paper-id = "new"`, set `paper-id` to the returned
 ID. Otherwise every run creates a new submission.

@@ -46,39 +46,70 @@ class UploadError(Exception):
 
 
 # --------------------------------------------------------------------------
-# GitHub Actions helpers
+# CI helpers (GitHub Actions, GitLab CI, plain terminal)
 
 
-def gh_annotate(level: str, msg: str, title: str | None = None) -> None:
-    """Emit a workflow command (::error::, ::warning::, ::notice::)."""
-    msg = msg.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
-    props = f" title={title}" if title else ""
+def ci_platform() -> str:
     if os.environ.get("GITHUB_ACTIONS") == "true":
-        print(f"::{level}{props}::{msg}")
+        return "github"
+    if os.environ.get("GITLAB_CI") == "true":
+        return "gitlab"
+    return "local"
+
+
+_ANSI = {"error": "\033[31;1m", "warning": "\033[33;1m", "notice": "\033[36;1m"}
+
+
+def ci_annotate(level: str, msg: str, title: str | None = None) -> None:
+    """Report an error/warning/notice in the platform's native style."""
+    platform = ci_platform()
+    if platform == "github":
+        msg = msg.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
+        props = f" title={title}" if title else ""
+        print(f"::{level}{props}::{msg}", flush=True)
+    elif platform == "gitlab":
+        prefix = f"{title}: " if title else ""
+        print(f"{_ANSI[level]}{level.upper()}:\033[0m {prefix}{msg}", flush=True)
     else:
-        print(f"[{level}] {msg}", file=sys.stderr)
+        print(f"[{level}] {msg}", file=sys.stderr, flush=True)
 
 
-def gh_output(name: str, value: Any) -> None:
-    path = os.environ.get("GITHUB_OUTPUT")
+def ci_output(name: str, value: Any) -> None:
+    """Set a step output.
+
+    GitHub: $GITHUB_OUTPUT (name as given, e.g. paper-id).
+    GitLab: dotenv file from $HOTCRP_DOTENV, as HOTCRP_RESULT_PAPER_ID=...
+    """
     if isinstance(value, (list, dict)):
-        value = json.dumps(value)
+        value = json.dumps(value, separators=(",", ":"))
     elif isinstance(value, bool):
         value = "true" if value else "false"
     value = "" if value is None else str(value)
+    wrote = False
+    path = os.environ.get("GITHUB_OUTPUT")
     if path:
         delim = f"EOF_{uuid.uuid4().hex}"
         with open(path, "a", encoding="utf-8") as f:
             f.write(f"{name}<<{delim}\n{value}\n{delim}\n")
-    else:
+        wrote = True
+    path = os.environ.get("HOTCRP_DOTENV")
+    if path:
+        key = "HOTCRP_RESULT_" + re.sub(r"[^A-Z0-9]", "_", name.upper())
+        with open(path, "a", encoding="utf-8") as f:
+            f.write(f"{key}={value.replace(chr(10), ' ')}\n")
+        wrote = True
+    if not wrote:
         print(f"output {name}={value}")
 
 
-def gh_summary(text: str) -> None:
-    path = os.environ.get("GITHUB_STEP_SUMMARY")
-    if path:
-        with open(path, "a", encoding="utf-8") as f:
-            f.write(text + "\n")
+def ci_summary(text: str) -> None:
+    """Append Markdown to the job summary ($GITHUB_STEP_SUMMARY or
+    $HOTCRP_SUMMARY_FILE, e.g. a GitLab artifact)."""
+    for var in ("GITHUB_STEP_SUMMARY", "HOTCRP_SUMMARY_FILE"):
+        path = os.environ.get(var)
+        if path:
+            with open(path, "a", encoding="utf-8") as f:
+                f.write(text + "\n")
 
 
 def strip_sigil(message: str) -> str:
@@ -265,7 +296,7 @@ class Client:
         if not re.match(r"^https?://", site):
             raise UploadError(f"site must be an http(s) URL: {site!r}")
         if site.startswith("http://") and not re.match(r"^http://(localhost|127\.)", site):
-            gh_annotate("warning", "site uses plain http; the API token is sent unencrypted")
+            ci_annotate("warning", "site uses plain http; the API token is sent unencrypted")
         self.site = site
         self.token = token
         self.timeout = timeout
@@ -368,10 +399,10 @@ def report_messages(r: dict[str, Any], title: str) -> tuple[int, int]:
             continue
         if st >= MSG_ERROR:
             errors += 1
-            gh_annotate("error", text, title)
+            ci_annotate("error", text, title)
         elif st == MSG_WARNING:
             warnings += 1
-            gh_annotate("warning", text, title)
+            ci_annotate("warning", text, title)
         else:
             print(f"  {text}")
     return errors, warnings
@@ -407,7 +438,10 @@ def opt_int(v: str) -> int | None:
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
-    env = os.environ.get
+    def env(name: str, default: str = "") -> str:
+        # HOTCRP_<NAME> (GitLab / generic) takes precedence over INPUT_<NAME> (GitHub action).
+        key = name.removeprefix("INPUT_")
+        return os.environ.get(f"HOTCRP_{key}") or os.environ.get(name) or default
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--config", default=env("INPUT_CONFIG", "hotcrp.toml"))
     ap.add_argument("--pdf", default=env("INPUT_PDF", ""))
@@ -432,7 +466,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     ap.add_argument("--reason", default=env("INPUT_REASON", ""))
     ap.add_argument("--timeout", type=float, default=float(env("INPUT_TIMEOUT", "") or 300))
     args = ap.parse_args(argv)
-    args.token = env("HOTCRP_TOKEN", "") or env("INPUT_TOKEN", "")
+    args.token = os.environ.get("HOTCRP_TOKEN") or os.environ.get("INPUT_TOKEN", "")
     return args
 
 
@@ -473,7 +507,7 @@ def run(args: argparse.Namespace) -> int:
     print(f"PDF: {pdf_path} ({len(pdf_data)} bytes)")
     problems = check_pdf_locally(pdf_data, args.max_size_mb)
     for p in problems:
-        gh_annotate("error", p, "PDF check")
+        ci_annotate("error", p, "PDF check")
     if problems:
         return 1
 
@@ -507,9 +541,9 @@ def run(args: argparse.Namespace) -> int:
         errors, warnings = report_messages(r, label)
         ok = bool(r.get("ok")) and bool(r.get("valid"))
         if not ok and errors == 0:
-            gh_annotate("error", f"{label} failed: " + format_messages(r, MSG_ERROR), label)
+            ci_annotate("error", f"{label} failed: " + format_messages(r, MSG_ERROR), label)
         if ok and warnings and args.fail_on_warning:
-            gh_annotate("error", f"{label}: {warnings} warning(s) and fail-on-warning is set",
+            ci_annotate("error", f"{label}: {warnings} warning(s) and fail-on-warning is set",
                         label)
             return False
         return ok
@@ -518,14 +552,14 @@ def run(args: argparse.Namespace) -> int:
         print("Validating (dry run)...")
         r = save(True)
         valid = check_save(r, "Validation")
-        gh_output("valid", valid)
-        gh_output("change-list", r.get("change_list") or [])
+        ci_output("valid", valid)
+        ci_output("change-list", r.get("change_list") or [])
         if not valid:
             return 1
         print(f"Validation passed. Changes: {', '.join(r.get('change_list') or []) or 'none'}")
         if args.dry_run:
-            gh_output("paper-id", r.get("pid") or cfg.paper_id)
-            gh_summary(f"### HotCRP dry run\n\nValid. Changes: "
+            ci_output("paper-id", r.get("pid") or cfg.paper_id)
+            ci_summary(f"### HotCRP dry run\n\nValid. Changes: "
                        f"`{', '.join(r.get('change_list') or []) or 'none'}`\n")
             if args.check_format:
                 print("Note: format check is skipped in dry-run mode (needs a stored document).")
@@ -536,19 +570,19 @@ def run(args: argparse.Namespace) -> int:
     print("Saving submission...")
     r = save(False)
     valid = check_save(r, "Upload")
-    gh_output("valid", valid)
-    gh_output("change-list", r.get("change_list") or [])
+    ci_output("valid", valid)
+    ci_output("change-list", r.get("change_list") or [])
     if not valid:
         return 1
     pid = r.get("pid") or (r.get("paper") or {}).get("pid")
     status = (r.get("paper") or {}).get("status", cfg.status)
     url = f"{client.site}/paper/{pid}"
-    gh_output("paper-id", pid)
-    gh_output("paper-url", url)
-    gh_output("paper-status", status)
+    ci_output("paper-id", pid)
+    ci_output("paper-url", url)
+    ci_output("paper-status", status)
     print(f"Saved paper #{pid} ({status}): {url}")
     if cfg.paper_id == "new":
-        gh_annotate("notice", f"Created paper #{pid}. Set [server].paper-id = {pid} in "
+        ci_annotate("notice", f"Created paper #{pid}. Set [server].paper-id = {pid} in "
                     f"{args.config} so later runs update it instead of creating a new one.",
                     "HotCRP")
     summary = [f"### HotCRP upload\n", f"- Paper: [#{pid}]({url}) ({status})",
@@ -559,31 +593,31 @@ def run(args: argparse.Namespace) -> int:
         print("Running format check...")
         fc = client.formatcheck(int(pid), DOCUMENT_KINDS[cfg.document])
         if not fc.get("ok"):
-            gh_annotate("warning", "format check unavailable: " + format_messages(fc),
+            ci_annotate("warning", "format check unavailable: " + format_messages(fc),
                         "Format check")
         else:
             npages = fc.get("npages")
             problems = fc.get("problem_fields") or []
             has_error = bool(fc.get("has_error"))
             report_messages(fc, "Format check")
-            gh_output("npages", npages)
-            gh_output("nwords", fc.get("nwords"))
-            gh_output("format-problems", problems)
-            gh_output("format-ok", not problems and not has_error)
+            ci_output("npages", npages)
+            ci_output("nwords", fc.get("nwords"))
+            ci_output("format-problems", problems)
+            ci_output("format-ok", not problems and not has_error)
             print(f"Format check: {npages} pages, {fc.get('nwords')} words, "
                   f"problems: {', '.join(problems) or 'none'}")
             summary.append(f"- Pages: {npages}, words: {fc.get('nwords')}")
             summary.append(f"- Format problems: {', '.join(problems) or 'none'}")
             if args.fail_on_format_error and (has_error or problems):
-                gh_annotate("error", "format check reported problems: "
+                ci_annotate("error", "format check reported problems: "
                             + (", ".join(problems) or "see messages"), "Format check")
                 rc = 1
             if args.max_pages is not None and isinstance(npages, int) \
                     and npages > args.max_pages:
-                gh_annotate("error", f"{npages} pages exceeds max-pages {args.max_pages}",
+                ci_annotate("error", f"{npages} pages exceeds max-pages {args.max_pages}",
                             "Format check")
                 rc = 1
-    gh_summary("\n".join(summary) + "\n")
+    ci_summary("\n".join(summary) + "\n")
     return rc
 
 
@@ -591,7 +625,7 @@ def main(argv: list[str] | None = None) -> int:
     try:
         return run(parse_args(argv))
     except UploadError as e:
-        gh_annotate("error", str(e), "hotcrp")
+        ci_annotate("error", str(e), "hotcrp")
         return 1
 
 

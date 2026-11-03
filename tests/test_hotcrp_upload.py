@@ -242,5 +242,52 @@ class TestFlow(Base):
         self.assertIn(b'name="finish"', ups[0][4])
 
 
+class TestGitLab(Base):
+    def test_dotenv_and_env_inputs(self):
+        import os
+        from unittest import mock
+        dotenv = self.dir / "hotcrp.env"
+        summary = self.dir / "summary.md"
+        env = {"GITLAB_CI": "true", "HOTCRP_DOTENV": str(dotenv),
+               "HOTCRP_SUMMARY_FILE": str(summary), "HOTCRP_TOKEN": "hct_test",
+               "HOTCRP_CONFIG": str(self.dir / "hotcrp.toml"),
+               "HOTCRP_MAX_PAGES": "11", "HOTCRP_PAPER_ID": "7"}
+        with mock.patch.dict(os.environ, env):
+            os.environ.pop("GITHUB_ACTIONS", None)
+            os.environ.pop("GITHUB_OUTPUT", None)
+            os.environ.pop("GITHUB_STEP_SUMMARY", None)
+            self.assertEqual(hu.main([]), 1)  # 12 pages > 11
+        vals = dict(l.split("=", 1) for l in dotenv.read_text().splitlines())
+        self.assertEqual(vals["HOTCRP_RESULT_PAPER_ID"], "7")
+        self.assertEqual(vals["HOTCRP_RESULT_NPAGES"], "12")
+        self.assertEqual(vals["HOTCRP_RESULT_FORMAT_PROBLEMS"], "[]")
+        self.assertIn("HotCRP upload", summary.read_text())
+        self.assertEqual(self.paper_posts()[-1][2]["p"], "7")
+
+
+class TestInputParity(unittest.TestCase):
+    """action.yml inputs, templates/upload.yml inputs and script env names agree."""
+
+    def test_parity(self):
+        import re
+        root = Path(__file__).resolve().parent.parent
+        src = (root / "src" / "hotcrp_upload.py").read_text()
+        script = set(re.findall(r'env\("INPUT_([A-Z_]+)"', src)) | {"TOKEN"}
+        action = (root / "action.yml").read_text()
+        inputs_block = action.split("\ninputs:\n", 1)[1].split("\noutputs:\n", 1)[0]
+        gh_inputs = set(re.findall(r"^  ([a-z-]+):\n", inputs_block, re.M))
+        gh = {i.upper().replace("-", "_") for i in gh_inputs}
+        self.assertEqual(gh, script)
+        for i in gh_inputs:
+            self.assertIn(f"INPUT_{i.upper().replace('-', '_')}: ${{{{ inputs.{i} }}}}",
+                          action.replace("HOTCRP_TOKEN: ${{ inputs.token }}",
+                                         "INPUT_TOKEN: ${{ inputs.token }}"))
+        tpl = (root / "templates" / "upload.yml").read_text()
+        gl = set(re.findall(r'HOTCRP_([A-Z_]+): "\$\[\[ inputs\.([a-z-]+) \]\]"', tpl))
+        for var, inp in gl:
+            self.assertEqual(var, inp.upper().replace("-", "_"))
+        self.assertEqual({v for v, _ in gl}, script - {"TOKEN"})
+
+
 if __name__ == "__main__":
     unittest.main()

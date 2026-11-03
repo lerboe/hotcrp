@@ -1,0 +1,45 @@
+# Example .gitlab-ci.yml for a paper repository.
+stages: [build, deploy]
+
+build:
+  stage: build
+  image: texlive/texlive:latest
+  script:
+    - latexmk -pdf paper.tex
+  artifacts:
+    paths: [paper.pdf]
+
+include:
+  - remote: https://raw.githubusercontent.com/lerboe/hotcrp/main/templates/upload.yml
+    inputs:
+      pdf: paper.pdf
+      max-pages: "12"
+      max-size-mb: "20"
+      # Validate on every push; real upload only on submit-* tags.
+      dry-run: "true"
+      rules:
+        - if: $CI_COMMIT_TAG =~ /^submit-/
+          when: never
+        - when: on_success
+
+  - remote: https://raw.githubusercontent.com/lerboe/hotcrp/main/templates/upload.yml
+    inputs:
+      job-name: hotcrp-submit
+      pdf: paper.pdf
+      max-pages: "12"
+      rules:
+        - if: $CI_COMMIT_TAG =~ /^submit-/
+
+hotcrp-upload:
+  needs: [build]
+
+hotcrp-submit:
+  needs: [build]
+
+show-result:
+  stage: .post
+  needs: [hotcrp-submit]
+  rules:
+    - if: $CI_COMMIT_TAG =~ /^submit-/
+  script:
+    - echo "Paper $HOTCRP_RESULT_PAPER_ID: $HOTCRP_RESULT_NPAGES pages ($HOTCRP_RESULT_PAPER_URL)"

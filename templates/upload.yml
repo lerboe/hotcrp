@@ -1,0 +1,106 @@
+# GitLab CI/CD template: upload a PDF + hotcrp.toml metadata to HotCRP.
+#
+# Usage (.gitlab-ci.yml):
+#
+#   include:
+#     - remote: https://raw.githubusercontent.com/lerboe/hotcrp/main/templates/upload.yml
+#       inputs:
+#         pdf: build/paper.pdf
+#
+# Override any job key by redefining the job, e.g.
+#
+#   hotcrp-upload:
+#     needs: [build]
+#
+# Set HOTCRP_TOKEN as a masked CI/CD variable (Settings > CI/CD > Variables).
+# Outputs are exported as dotenv variables HOTCRP_RESULT_* to later jobs.
+spec:
+  inputs:
+    job-name:
+      default: hotcrp-upload
+    stage:
+      default: deploy
+    rules:
+      type: array
+      default:
+        - when: on_success
+    image:
+      default: python:3.12-alpine
+    version:
+      description: Git ref of lerboe/hotcrp to fetch the upload script from.
+      default: main
+    pdf:
+      default: ""
+    config:
+      default: hotcrp.toml
+    site:
+      default: ""
+    paper-id:
+      default: ""
+    status:
+      default: ""
+    document:
+      default: ""
+    dry-run:
+      default: "false"
+    validate-first:
+      default: "true"
+    check-format:
+      default: "true"
+    fail-on-format-error:
+      default: "true"
+    fail-on-warning:
+      default: "false"
+    max-pages:
+      default: ""
+    max-size-mb:
+      default: ""
+    ignore-unwritable-fields:
+      default: "false"
+    upload-method:
+      default: auto
+    reason:
+      default: ""
+    timeout:
+      default: "300"
+---
+"$[[ inputs.job-name ]]":
+  stage: $[[ inputs.stage ]]
+  image: $[[ inputs.image ]]
+  rules: $[[ inputs.rules ]]
+  variables:
+    HOTCRP_SCRIPT_URL: "https://raw.githubusercontent.com/lerboe/hotcrp/$[[ inputs.version ]]/src/hotcrp_upload.py"
+    HOTCRP_PDF: "$[[ inputs.pdf ]]"
+    HOTCRP_CONFIG: "$[[ inputs.config ]]"
+    HOTCRP_SITE: "$[[ inputs.site ]]"
+    HOTCRP_PAPER_ID: "$[[ inputs.paper-id ]]"
+    HOTCRP_STATUS: "$[[ inputs.status ]]"
+    HOTCRP_DOCUMENT: "$[[ inputs.document ]]"
+    HOTCRP_DRY_RUN: "$[[ inputs.dry-run ]]"
+    HOTCRP_VALIDATE_FIRST: "$[[ inputs.validate-first ]]"
+    HOTCRP_CHECK_FORMAT: "$[[ inputs.check-format ]]"
+    HOTCRP_FAIL_ON_FORMAT_ERROR: "$[[ inputs.fail-on-format-error ]]"
+    HOTCRP_FAIL_ON_WARNING: "$[[ inputs.fail-on-warning ]]"
+    HOTCRP_MAX_PAGES: "$[[ inputs.max-pages ]]"
+    HOTCRP_MAX_SIZE_MB: "$[[ inputs.max-size-mb ]]"
+    HOTCRP_IGNORE_UNWRITABLE_FIELDS: "$[[ inputs.ignore-unwritable-fields ]]"
+    HOTCRP_UPLOAD_METHOD: "$[[ inputs.upload-method ]]"
+    HOTCRP_REASON: "$[[ inputs.reason ]]"
+    HOTCRP_TIMEOUT: "$[[ inputs.timeout ]]"
+    HOTCRP_DOTENV: hotcrp.env
+    HOTCRP_SUMMARY_FILE: hotcrp-summary.md
+  script:
+    - |
+      if [ -z "$HOTCRP_TOKEN" ]; then
+        echo "HOTCRP_TOKEN is not set. Add it as a masked CI/CD variable." >&2
+        exit 1
+      fi
+    - touch hotcrp.env
+    - python3 -c "import sys, urllib.request; urllib.request.urlretrieve(sys.argv[1], sys.argv[2])" "$HOTCRP_SCRIPT_URL" /tmp/hotcrp_upload.py
+    - python3 -I /tmp/hotcrp_upload.py
+  artifacts:
+    when: always
+    paths:
+      - hotcrp-summary.md
+    reports:
+      dotenv: hotcrp.env
