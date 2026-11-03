@@ -1,0 +1,141 @@
+name: HotCRP Upload
+description: Upload a rendered PDF plus metadata from hotcrp.toml to a HotCRP submission site.
+author: lerboe
+branding:
+  icon: upload-cloud
+  color: blue
+
+inputs:
+  token:
+    description: HotCRP API token (hct_...). Pass from a secret. Needs submeta:write and document:write (document:read for format checks).
+    required: true
+  pdf:
+    description: Path to the PDF. Defaults to [paper].pdf in the config file.
+    required: false
+    default: ""
+  config:
+    description: Path to hotcrp.toml.
+    required: false
+    default: hotcrp.toml
+  site:
+    description: HotCRP site URL, e.g. https://conf2027.hotcrp.com. Overrides [server].site.
+    required: false
+    default: ""
+  paper-id:
+    description: Submission ID, or "new". Overrides [server].paper-id.
+    required: false
+    default: ""
+  status:
+    description: '"submitted" or "draft". Overrides [server].status.'
+    required: false
+    default: ""
+  document:
+    description: '"submission" or "final" (camera-ready). Overrides [server].document.'
+    required: false
+    default: ""
+  dry-run:
+    description: Only validate on the server (dry_run=1); save nothing.
+    required: false
+    default: "false"
+  validate-first:
+    description: Run a dry-run validation before the real save.
+    required: false
+    default: "true"
+  check-format:
+    description: Run the HotCRP format checker (/api/formatcheck) after upload.
+    required: false
+    default: "true"
+  fail-on-format-error:
+    description: Fail the step if the format checker reports problems.
+    required: false
+    default: "true"
+  fail-on-warning:
+    description: Fail the step if validation reports warnings.
+    required: false
+    default: "false"
+  max-pages:
+    description: Fail if the server-reported page count exceeds this.
+    required: false
+    default: ""
+  max-size-mb:
+    description: Fail locally if the PDF is larger than this many MB.
+    required: false
+    default: ""
+  ignore-unwritable-fields:
+    description: Pass ignore_unwritable_fields=1 (skip fields you may not change, e.g. after the deadline).
+    required: false
+    default: "false"
+  upload-method:
+    description: '"direct" (ZIP in request body), "chunked" (/api/upload, needs document store), or "auto".'
+    required: false
+    default: auto
+  reason:
+    description: Reason for the change, included in notification emails.
+    required: false
+    default: ""
+  timeout:
+    description: HTTP timeout in seconds.
+    required: false
+    default: "300"
+
+outputs:
+  paper-id:
+    description: Submission ID.
+    value: ${{ steps.upload.outputs.paper-id }}
+  paper-url:
+    description: Submission URL.
+    value: ${{ steps.upload.outputs.paper-url }}
+  paper-status:
+    description: Submission status reported by the server.
+    value: ${{ steps.upload.outputs.paper-status }}
+  valid:
+    description: Whether the server accepted the change.
+    value: ${{ steps.upload.outputs.valid }}
+  change-list:
+    description: JSON array of changed fields.
+    value: ${{ steps.upload.outputs.change-list }}
+  npages:
+    description: Page count from the format checker.
+    value: ${{ steps.upload.outputs.npages }}
+  nwords:
+    description: Word count from the format checker.
+    value: ${{ steps.upload.outputs.nwords }}
+  format-ok:
+    description: True if the format checker found no problems.
+    value: ${{ steps.upload.outputs.format-ok }}
+  format-problems:
+    description: JSON array of format problem fields (papersize, pagelimit, ...).
+    value: ${{ steps.upload.outputs.format-problems }}
+
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-python@v5
+      with:
+        python-version: "3.12"
+        update-environment: false
+      id: py
+    - id: upload
+      shell: bash
+      env:
+        HOTCRP_TOKEN: ${{ inputs.token }}
+        INPUT_PDF: ${{ inputs.pdf }}
+        INPUT_CONFIG: ${{ inputs.config }}
+        INPUT_SITE: ${{ inputs.site }}
+        INPUT_PAPER_ID: ${{ inputs.paper-id }}
+        INPUT_STATUS: ${{ inputs.status }}
+        INPUT_DOCUMENT: ${{ inputs.document }}
+        INPUT_DRY_RUN: ${{ inputs.dry-run }}
+        INPUT_VALIDATE_FIRST: ${{ inputs.validate-first }}
+        INPUT_CHECK_FORMAT: ${{ inputs.check-format }}
+        INPUT_FAIL_ON_FORMAT_ERROR: ${{ inputs.fail-on-format-error }}
+        INPUT_FAIL_ON_WARNING: ${{ inputs.fail-on-warning }}
+        INPUT_MAX_PAGES: ${{ inputs.max-pages }}
+        INPUT_MAX_SIZE_MB: ${{ inputs.max-size-mb }}
+        INPUT_IGNORE_UNWRITABLE_FIELDS: ${{ inputs.ignore-unwritable-fields }}
+        INPUT_UPLOAD_METHOD: ${{ inputs.upload-method }}
+        INPUT_REASON: ${{ inputs.reason }}
+        INPUT_TIMEOUT: ${{ inputs.timeout }}
+      run: |
+        echo "::add-mask::$HOTCRP_TOKEN"
+        "${{ steps.py.outputs.python-path }}" "$GITHUB_ACTION_PATH/src/hotcrp_upload.py"

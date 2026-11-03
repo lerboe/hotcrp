@@ -1,0 +1,35 @@
+# Example workflow for a paper repository: .github/workflows/hotcrp.yml
+name: Submit to HotCRP
+on:
+  workflow_dispatch:
+    inputs:
+      dry-run:
+        description: Validate only
+        type: boolean
+        default: true
+  push:
+    tags: ["submit-*"]
+
+jobs:
+  submit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build PDF
+        uses: xu-cheng/latex-action@v3
+        with:
+          root_file: paper.tex
+          working_directory: .
+
+      - name: Upload to HotCRP
+        id: hotcrp
+        uses: lerboe/hotcrp-ci@main
+        with:
+          token: ${{ secrets.HOTCRP_TOKEN }}
+          pdf: paper.pdf
+          dry-run: ${{ inputs.dry-run || 'false' }}
+          max-pages: 12
+          max-size-mb: 20
+
+      - run: echo "Paper ${{ steps.hotcrp.outputs.paper-id }}: ${{ steps.hotcrp.outputs.npages }} pages"

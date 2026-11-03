@@ -1,0 +1,45 @@
+# hotcrp.toml — metadata for uploading a paper to HotCRP.
+# Copy to hotcrp.toml in your paper repo. All keys are optional unless noted.
+# Action inputs (site, paper-id, status, document, pdf) override these values.
+
+[server]
+site = "https://conf2027.hotcrp.com"   # HotCRP site URL (no /api suffix)
+paper-id = "new"                       # submission ID; "new" creates one
+status = "submitted"                   # "submitted" or "draft"
+document = "submission"                # "submission" or "final" (camera-ready)
+
+[paper]
+pdf = "build/paper.pdf"                # relative to this file; `pdf` input overrides
+title = "Aught: A Methodology for the Visualization of Scheme"   # required for new papers
+abstract = """
+We present Aught, a methodology for ...
+"""
+topics = ["Programming languages", "Visualization"]   # must match site topic names
+collaborators = """
+Jane Roe (Example University)
+All of Example Labs
+"""
+contacts = ["extra-contact@example.org"]   # extra contacts that are not authors
+
+# Order matters. Use first/last, or a single `name`.
+[[paper.authors]]
+first = "Nevaeh"
+last = "Gomez"
+email = "ngomez@example.edu"
+affiliation = "Example University"
+contact = true                          # add as submission contact
+
+[[paper.authors]]
+name = "Ada Lovelace"
+email = "ada@example.org"
+affiliation = "Analytical Engines Ltd."
+
+# PC conflicts: PC member email -> conflict type (or true).
+[paper.pc_conflicts]
+"pcmember@example.com" = "collaborator"
+
+# Site-specific submission fields, keyed by their HotCRP JSON name
+# (see GET /api/{p}/paper?download=1 on an existing paper for the names).
+[paper.fields]
+# artifact_url = "https://github.com/example/artifact"
+# student_paper = true

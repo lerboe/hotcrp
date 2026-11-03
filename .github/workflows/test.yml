@@ -1,0 +1,15 @@
+name: test
+on:
+  push:
+  pull_request:
+jobs:
+  unit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m unittest discover -s tests -v
+      - name: Validate example config parses
+        run: python -c "import sys; sys.path.insert(0,'src'); import hotcrp_upload as h; h.load_config(__import__('pathlib').Path('hotcrp.example.toml'))"
